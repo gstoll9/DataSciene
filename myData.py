@@ -15,6 +15,15 @@ os.makedirs(plot_dir) if not os.path.exists(plot_dir) else None
 
 processes = cpu_count() - 1
 
+# display data frames, side by side in jupyter
+def display_side_by_side(*args,titles=cycle([''])):
+    html_str=''
+    for df,title in zip(args, chain(titles,cycle(['</br>'])) ):
+        html_str+='<th style="text-align:center"><td style="vertical-align:top">'
+        html_str+=f'<h2 style="text-align: center;">{title}</h2>'
+        html_str+=df.to_html().replace('table','table style="display:inline"')
+        html_str+='</td></th>'
+    display_html(html_str,raw=True)
 
 def to_pickle(data, path):
     with open(path, 'wb') as file:
@@ -60,8 +69,8 @@ def df_info(df: pd.DataFrame):
      # shape
     print('\tshape')
     print('-'*(8+len('shape')+8))
-    print('rows:',df.shape[0])
-    print('cols:',df.shape[1])
+    print('rows:', '{:,}'.format(df.shape[0]))
+    print('cols:', '{:,}'.format(df.shape[1]))
     print()
 
     # head
@@ -74,14 +83,15 @@ def df_info(df: pd.DataFrame):
     print('\tinfo')
     print('-'*(8+len('info')+8))
 
-    info = pd.DataFrame(columns=['name', 'dtype', 'nulls', 'unique'])
+    info = pd.DataFrame(columns=['column name', 'dtype', 'count', '# null', 'null %', '# unique', 'top', 'top freq', 'top %'])
     for column in df.columns:
     
         col = df[column]
+        ln = len(col)
         
         # skip nulls
         i = 0
-        while pd.isnull(col.iloc[i]):
+        while i < ln-1 and pd.isnull(col.iloc[i]):
             i += 1
 
         # get dtype
@@ -89,12 +99,13 @@ def df_info(df: pd.DataFrame):
     
         # set str type
         strtype = 'single'
-        if dtype == type(''):
+        if dtype == str:
             if '\n' in col.iloc[i]:
                 strtype = 'multi'
     
         # loop through column (skipping nulls)
-        for c in col.iloc[i+1:]:
+        for j in range(i+1,ln):
+            c = col.iloc[j]
             if pd.notnull(c):
                 # check dtype
                 if dtype != type(c):
@@ -106,19 +117,32 @@ def df_info(df: pd.DataFrame):
                         strtype = 'multi'
     
         # add strtype
-        dtype = dtype.__name__
+        if dtype != 'mixed':
+            dtype = dtype.__name__
         if dtype == 'str':
-            dtype += ' - ' + strtype
+            dtype += ' - ' + strtype if strtype == 'multi' else ''
+            
+        nulls = sum(pd.isnull(col))
+        values = col.value_counts()
+        values = '-' if values.empty else values
+        uniques = col.unique()
         
         info.loc[len(info)] = {
-            'name': column,
+            'column name': column,
             'dtype': dtype,
-            'nulls': sum(pd.isnull(col)),
-            'unique': True if len(col) == len(col.unique()) else '-'
+            'count': ln - nulls,
+            '# null': nulls,
+            'null %': round(nulls/ln*100,2),
+            '# unique': sum(pd.notnull(uniques)),
+            'top': values if type(values) == str else values.index[0], 
+            'top freq': values if type(values) == str else values.iloc[0],
+            'top %': values if type(values) == str else round(values.iloc[0]/ln*100,2)
         }
+        
+    info = info.set_index('column name')
 
-    for i in range(0,len(df.columns),50):
-        display(info.iloc[i:i+50])
+    for i in range(0,len(df.columns),25):
+        display(info.iloc[i:i+25])
     print()
     
     # # info
@@ -127,9 +151,12 @@ def df_info(df: pd.DataFrame):
     # describe
     print('\tdescribe')
     print('-'*(8+len('describe')+8))
-    display(df.describe().transpose())
+    
+    desc = df[info[info['null %'] != 100].index].describe().transpose()
+    for i in range(0,len(desc),25):
+        display(desc.iloc[i:i+25])
+        
     print()
-
 
 def getCategoricals(df: pd.DataFrame):
 
